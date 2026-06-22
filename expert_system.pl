@@ -37,6 +37,17 @@ position(jr_auditor, 'Младший аудитор', cbr, [buh], [excel, fin_an
 position(hotel_admin, 'Администратор приема и размещения', cosmos, [tur], [english, communication], 'Прием, регистрация и расселение гостей отеля, работа в специализированной СУО, консультации на английском языке, разрешение конфликтных ситуаций.').
 
 % -----------------------------------------------------------------
+% ФАКТЫ: ПРОФЕССИОНАЛЬНЫЕ ИНТЕРЕСЫ ДЛЯ ВАКАНСИЙ
+% -----------------------------------------------------------------
+position_interests(py_dev, [programming, backend, databases]).
+position_interests(front_dev, [programming, web, design]).
+position_interests(sys_admin, [networks, administration, linux]).
+position_interests(cad_designer, [engineering, drawings, machines]).
+position_interests(buh_assistant, [documents, accounting, data_entry]).
+position_interests(jr_auditor, [finance, analysis, law_docs]).
+position_interests(hotel_admin, [communication, service, english]).
+
+% -----------------------------------------------------------------
 % ПРАВИЛА ЛОГИЧЕСКОГО ВЫВОДА (Rules)
 % -----------------------------------------------------------------
 
@@ -60,10 +71,32 @@ match_gpa(StudentGPA, MinGPA) :-
 %    - Если студент выбрал "any", подходит любой город.
 %    - Если компания предлагает "remote" (удаленно), она подходит при любом выборе студента.
 %    - В остальных случаях город студента должен совпадать с городом компании.
-match_location(any, _).
-match_location(_, remote).
+match_location(any, _) :- !.
+match_location(_, remote) :- !.
 match_location(StudentLoc, CompanyLoc) :- 
     StudentLoc = CompanyLoc.
+
+% 4. Проверка предпочтительной отрасли
+match_industry(any, _).
+match_industry(Industry, Industry).
+
+% 5. Проверка предпочтительного формата работы
+match_work_format(any, _).
+match_work_format(remote, remote).
+match_work_format(office, CompanyLoc) :-
+    CompanyLoc \= remote.
+
+% 6. Подсчет совпадений профессиональных интересов
+interest_score([], _, 0).
+interest_score(StudentInterests, PositionID, Score) :-
+    position_interests(PositionID, PositionInterests),
+    intersect_count(PositionInterests, StudentInterests, MatchCount),
+    list_len(StudentInterests, TotalCount),
+    (TotalCount > 0 ->
+        Score is (MatchCount * 20) / TotalCount
+    ;
+        Score is 0
+    ).
 
 % 4. Подсчет количества совпадающих навыков студента и требований вакансии
 intersect_count([], _, 0).
@@ -89,27 +122,33 @@ missing_skills([H|T], StudentSkills, [H|Missing]) :-
 %   Входные:  StudentSpec, StudentSkills, StudentGPA, StudentLoc
 %   Выходные: PositionID, Title, CompanyName, CompanyLoc, Score, MissingSkills
 recommend_position(StudentSpec, StudentSkills, StudentGPA, StudentLoc, PositionID, Title, CompanyName, CompanyLoc, Score, MissingSkills) :-
+    recommend_position(StudentSpec, StudentSkills, StudentGPA, StudentLoc, any, any, [], PositionID, Title, CompanyName, CompanyLoc, Score, MissingSkills).
+
+recommend_position(StudentSpec, StudentSkills, StudentGPA, StudentLoc, IndustryPref, WorkFormatPref, StudentInterests, PositionID, Title, CompanyName, CompanyLoc, Score, MissingSkills) :-
     % Находим вакансию и соответствующую ей компанию
     position(PositionID, Title, CompanyID, AllowedSpecs, ReqSkills, _Duties),
-    company(CompanyID, CompanyName, _Industry, CompanyLoc, MinGPA, _Description),
+    company(CompanyID, CompanyName, Industry, CompanyLoc, MinGPA, _Description),
     
     % Проверяем жесткие критерии отбора (фильтры)
     match_specialization(StudentSpec, AllowedSpecs),
     match_gpa(StudentGPA, MinGPA),
     match_location(StudentLoc, CompanyLoc),
+    match_industry(IndustryPref, Industry),
+    match_work_format(WorkFormatPref, CompanyLoc),
     
     % Считаем количество совпадений по навыкам
     intersect_count(ReqSkills, StudentSkills, MatchCount),
     list_len(ReqSkills, TotalCount),
     
     % Вычисляем процент соответствия (Score):
-    % Жесткие критерии дают базовые 50%. Навыки распределяют оставшиеся 50%.
+    % Жесткие критерии дают базовые 50%. Навыки дают до 30%, интересы - до 20%.
     (TotalCount > 0 -> 
-        SkillsScore is (MatchCount * 50) / TotalCount 
+        SkillsScore is (MatchCount * 30) / TotalCount 
     ; 
-        SkillsScore is 50
+        SkillsScore is 30
     ),
-    Score is 50 + SkillsScore,
+    interest_score(StudentInterests, PositionID, InterestScore),
+    Score is 50 + SkillsScore + InterestScore,
     
     % Находим, каких навыков не хватает
     missing_skills(ReqSkills, StudentSkills, MissingSkills).
